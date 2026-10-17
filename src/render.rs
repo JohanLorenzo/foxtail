@@ -1,7 +1,8 @@
 use crate::colors::{color_from_spec, gradient_green_to_red};
-use crate::config::{get_symbol, ColorSpec, Colors, Config};
+use crate::config::{get_symbol, ColorSpec, Colors, Config, ResetStyle};
 use crate::git::{commit_warning_color, format_duration, format_duration_ms, get_git_info};
-use crate::types::StatusInput;
+use crate::types::{RateLimitWindow, StatusInput};
+use chrono::{Duration, Local, TimeZone, Utc};
 use nu_ansi_term::Color::{self, Rgb};
 use nu_ansi_term::Style;
 
@@ -118,6 +119,71 @@ pub fn render_ctx(
         .to_string()
 }
 
+pub struct LimitDisplay<'a, Tz: TimeZone> {
+    pub sym: String,
+    pub marker: &'a str,
+    pub style: ResetStyle,
+    pub tz: &'a Tz,
+}
+
+fn reset_suffix<Tz: TimeZone>(display: &LimitDisplay<Tz>, resets_at: i64, now: i64) -> String
+where
+    Tz::Offset: std::fmt::Display,
+{
+    let Some(reset) = Utc.timestamp_opt(resets_at, 0).single() else {
+        return String::new();
+    };
+    let reset = reset.with_timezone(display.tz);
+    let now_local = Utc.timestamp_opt(now, 0).unwrap().with_timezone(display.tz);
+    let is_today = reset.date_naive() == now_local.date_naive();
+    let clock = reset.format("%H:%M");
+    let weekday = reset.format("%a");
+    let marker = display.marker;
+    match display.style {
+        ResetStyle::None => String::new(),
+        ResetStyle::Countdown => {
+            format!(" ({})", format_duration(Duration::seconds(resets_at - now)))
+        }
+        ResetStyle::Clock if is_today => format!(" {marker}{clock}"),
+        ResetStyle::Clock => format!(" {marker}{weekday} {clock}"),
+        ResetStyle::Weekday if is_today => format!(" {marker}{clock}"),
+        ResetStyle::Weekday => format!(" {marker}{weekday}"),
+    }
+}
+
+pub fn render_limit<Tz: TimeZone>(
+    window: Option<&RateLimitWindow>,
+    display: &LimitDisplay<Tz>,
+    now: i64,
+    bg: Option<Color>,
+    bg_rgb: (u8, u8, u8),
+    light: bool,
+    color_enabled: bool,
+) -> String
+where
+    Tz::Offset: std::fmt::Display,
+{
+    let Some(w) = window.filter(|w| w.resets_at > now) else {
+        return String::new();
+    };
+    let used = w.used_percentage.clamp(0.0, 100.0);
+    let text = format!(
+        "{}{:.0}%{}",
+        display.sym,
+        used.round(),
+        reset_suffix(display, w.resets_at, now)
+    );
+    if !color_enabled {
+        return text;
+    }
+    let s = Style::new()
+        .fg(gradient_green_to_red(used, bg_rgb, light))
+        .bold();
+    (if let Some(b) = bg { s.on(b) } else { s })
+        .paint(text)
+        .to_string()
+}
+
 pub fn render_git(
     cwd: &str,
     cfg: &Config,
@@ -173,8 +239,17 @@ pub fn build_replacements<'a>(
     bg_rgb: (u8, u8, u8),
     light: bool,
     color_enabled: bool,
-) -> [(&'static str, String); 12] {
+) -> [(&'static str, String); 14] {
     let sym = |k| get_symbol(k, cfg);
+    let now = Utc::now().timestamp();
+    let limits = d.rate_limits.as_ref();
+    let (reset_marker, local) = (sym("limit_reset"), Local);
+    let limit_display = |key: &'static str| LimitDisplay {
+        sym: sym(key),
+        marker: &reset_marker,
+        style: cfg.reset_style(key),
+        tz: &local,
+    };
     [
         ("head",        cfg.visual.as_ref().and_then(|v| v.head.clone()).unwrap_or_else(|| fox_head(color_enabled))),
         ("tail",        cfg.visual.as_ref().and_then(|v| v.tail.clone()).unwrap_or_else(|| fox_tail(bg, color_enabled))),
@@ -192,6 +267,8 @@ pub fn build_replacements<'a>(
         ("profile",     std::env::var("ANTHROPIC_PROFILE").ok().filter(|p| !p.is_empty())
             .map(|p| paint_with(&col.profile, format!("{}{}", sym("profile"), p), bg, color_enabled))
             .unwrap_or_default()),
+        ("limit5h",     render_limit(limits.and_then(|l| l.five_hour.as_ref()), &limit_display("limit5h"), now, bg, bg_rgb, light, color_enabled)),
+        ("limit7d",     render_limit(limits.and_then(|l| l.seven_day.as_ref()), &limit_display("limit7d"), now, bg, bg_rgb, light, color_enabled)),
     ]
 }
 

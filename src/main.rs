@@ -14,12 +14,14 @@ use std::io::{self, Read};
 pub use cli::{Args, BackgroundMode, ColorMode};
 pub use colors::{adjust_colors_for_background, parse_color};
 pub use config::{
-    default_format, dump_config, get_symbol, load_config_with_path_override, ColorSpec, Colors,
-    Config, Visual,
+    default_format, default_limit5h_reset, default_limit7d_reset, dump_config, get_symbol,
+    load_config_with_path_override, ColorSpec, Colors, Config, ResetStyle, Visual,
 };
 pub use git::{commit_warning_color, format_duration_ms};
-pub use render::{abbreviate_path, render_formatted, render_warning};
-pub use types::{ContextWindow, Cost, CurrentUsage, Model, StatusInput, Workspace};
+pub use render::{abbreviate_path, render_formatted, render_limit, render_warning, LimitDisplay};
+pub use types::{
+    ContextWindow, Cost, CurrentUsage, Model, RateLimitWindow, RateLimits, StatusInput, Workspace,
+};
 
 #[cfg(test)]
 mod tests;

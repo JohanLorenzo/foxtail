@@ -7,6 +7,8 @@ pub struct StatusInput {
     pub workspace: Workspace,
     pub cost: Cost,
     pub context_window: ContextWindow,
+    #[serde(default)]
+    pub rate_limits: Option<RateLimits>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -43,4 +45,16 @@ pub struct CurrentUsage {
     pub output_tokens: u32,
     pub cache_creation_input_tokens: u32,
     pub cache_read_input_tokens: u32,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RateLimits {
+    pub five_hour: Option<RateLimitWindow>,
+    pub seven_day: Option<RateLimitWindow>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RateLimitWindow {
+    pub used_percentage: f64,
+    pub resets_at: i64,
 }

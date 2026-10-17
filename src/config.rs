@@ -53,6 +53,26 @@ pub struct Visual {
     pub separator: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResetStyle {
+    Clock,
+    Weekday,
+    Countdown,
+    None,
+}
+
+impl ResetStyle {
+    pub fn parse(value: &str) -> Option<ResetStyle> {
+        match value {
+            "clock" => Some(ResetStyle::Clock),
+            "weekday" => Some(ResetStyle::Weekday),
+            "countdown" => Some(ResetStyle::Countdown),
+            "none" => Some(ResetStyle::None),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Config {
     #[serde(default = "default_enable_git")]
@@ -85,6 +105,27 @@ pub struct Config {
     pub light_background: Option<bool>,
     #[serde(default)]
     pub warning_message: Option<String>,
+    #[serde(default = "default_limit5h_reset")]
+    pub limit5h_reset: String,
+    #[serde(default = "default_limit7d_reset")]
+    pub limit7d_reset: String,
+}
+
+impl Config {
+    pub fn reset_style(&self, key: &str) -> ResetStyle {
+        let (value, fallback) = match key {
+            "limit5h" => (&self.limit5h_reset, ResetStyle::Clock),
+            _ => (&self.limit7d_reset, ResetStyle::None),
+        };
+        ResetStyle::parse(value).unwrap_or(fallback)
+    }
+}
+
+pub fn default_limit5h_reset() -> String {
+    "clock".to_string()
+}
+pub fn default_limit7d_reset() -> String {
+    "none".to_string()
 }
 
 pub fn default_warn_threshold() -> f64 {
@@ -126,6 +167,8 @@ impl Default for Config {
             format: default_format(),
             light_background: None,
             warning_message: None,
+            limit5h_reset: default_limit5h_reset(),
+            limit7d_reset: default_limit7d_reset(),
         }
     }
 }
@@ -144,6 +187,9 @@ pub fn get_symbol(key: &str, config: &Config) -> String {
         "cost" => ("💰 $", "$"),
         "cache" => ("🗄 ", "cache:"),
         "profile" => ("👤 ", "profile:"),
+        "limit5h" => ("🕔 ", "5h:"),
+        "limit7d" => ("📅 ", "7d:"),
+        "limit_reset" => ("↻", "↻"),
         _ => ("", ""),
     };
     if config.use_emojis {
@@ -243,11 +289,13 @@ pub fn dump_config() {
             "⚠ Context warning: {used_pct}% used in first minute ({used_k}k/{total_k}k) ⚠"
                 .to_string(),
         ),
+        limit5h_reset: default_limit5h_reset(),
+        limit7d_reset: default_limit7d_reset(),
     };
     match toml::to_string(&example_config) {
         Ok(t) => {
             println!("{}", t);
-            println!("\nNote: Colors can be specified as:\n  - RGB arrays: [255, 140, 0]\n  - Hex strings: \"#ff8c00\" or \"#f80\"\n  - HSL strings: \"hsl(30, 100, 50)\"\n\nFormat placeholders:\n  {{head}} {{tail}} {{model}} {{cwd}} {{cwdcompact}} {{duration}}\n  {{ctx}} {{gitdelta}} {{claudedelta}} {{cost}} {{cache}} {{profile}}\n\nThe {{profile}} placeholder shows the value of the ANTHROPIC_PROFILE environment\nvariable. It renders nothing (not even the prefix/emoji) when the variable is\nunset or empty.");
+            println!("\nNote: Colors can be specified as:\n  - RGB arrays: [255, 140, 0]\n  - Hex strings: \"#ff8c00\" or \"#f80\"\n  - HSL strings: \"hsl(30, 100, 50)\"\n\nFormat placeholders:\n  {{head}} {{tail}} {{model}} {{cwd}} {{cwdcompact}} {{duration}}\n  {{ctx}} {{gitdelta}} {{claudedelta}} {{cost}} {{cache}} {{profile}}\n  {{limit5h}} {{limit7d}}\n\nThe {{profile}} placeholder shows the value of the ANTHROPIC_PROFILE environment\nvariable. It renders nothing (not even the prefix/emoji) when the variable is\nunset or empty.\n\nThe {{limit5h}} and {{limit7d}} placeholders show the percentage used of the\nClaude Code 5-hour and 7-day usage windows and optionally when they reset. They\nrender nothing when Claude Code does not report that window (it is only sent\nfor Pro/Max subscribers, or behind a gateway with a spend limit, and only after\nthe first API response) or when it has already reset. Gateway spend_limit data is\nnot shown.\nThe reset time is chosen per window with limit5h_reset (default \"clock\") and\nlimit7d_reset (default \"none\"): \"clock\" (local HH:MM, prefixed with the weekday\nif not today), \"weekday\" (e.g. Tue, or HH:MM if today), \"countdown\" (e.g.\n(2h10m)) or \"none\". Unknown values fall back to the default.\nThe symbols \"limit5h\" (emoji 🕔), \"limit7d\" (emoji 📅) and \"limit_reset\" (the ↻\nmarker) can be overridden in [symbols].");
         }
         Err(e) => eprintln!("Error serializing example: {}", e),
     }
