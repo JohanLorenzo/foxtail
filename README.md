@@ -18,6 +18,8 @@ git status, session stats, cost, cache, etc.
   - `--log-cost` append one `{"t":<receive time>,"c":<cost.total_cost_usd>}`
     line per received status payload to `<session id>.cost.jsonl` next to the
     session transcript
+  - `--usage-snapshot <FILE>` atomically write the 5h/7d usage percentages and
+    reset times as JSON on each payload that carries `rate_limits`
 
 ## Install
 

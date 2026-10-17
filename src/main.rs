@@ -5,10 +5,12 @@ mod cost_log;
 mod git;
 mod render;
 mod types;
+mod usage_snapshot;
 
 use clap::Parser;
 use cost_log::log_cost;
 use std::io::{self, Read};
+use usage_snapshot::write_usage_snapshot;
 
 // Re-exports for tests and external use
 pub use cli::{Args, BackgroundMode, ColorMode};
@@ -68,6 +70,10 @@ fn main() {
 
     if args.log_cost {
         log_cost(&input);
+    }
+
+    if let Some(path) = &args.usage_snapshot {
+        write_usage_snapshot(&input, path);
     }
 
     let data: StatusInput = match serde_json::from_str(&input) {

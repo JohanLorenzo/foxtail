@@ -655,3 +655,89 @@ fn test_limits_custom_marker_via_symbols_in_render() {
     }));
     assert!(render_limits_plain(&d, &cfg).starts_with("5h:23% >>"));
 }
+
+#[test]
+fn test_usage_snapshot_json_full() {
+    use crate::usage_snapshot::snapshot_json;
+
+    let v: serde_json::Value = serde_json::from_str(
+        r#"{"rate_limits":{"five_hour":{"used_percentage":23.5,"resets_at":1792300000},"seven_day":{"used_percentage":41.2,"resets_at":1792800000}}}"#,
+    )
+    .unwrap();
+    let now = chrono::Utc
+        .with_ymd_and_hms(2026, 10, 17, 12, 0, 5)
+        .unwrap();
+    let json = snapshot_json(&v, now).unwrap();
+    assert_eq!(
+        json,
+        "{\"five_hour_pct\":23.5,\"five_hour_resets_at\":\"2026-10-18T05:06:40Z\",\"weekly_pct\":41.2,\"weekly_resets_at\":\"2026-10-24T00:00:00Z\",\"updated_at\":\"2026-10-17T12:00:05Z\"}"
+    );
+    serde_json::from_str::<serde_json::Value>(&json).unwrap();
+}
+
+#[test]
+fn test_usage_snapshot_json_missing_window() {
+    use crate::usage_snapshot::snapshot_json;
+
+    let v: serde_json::Value = serde_json::from_str(
+        r#"{"rate_limits":{"seven_day":{"used_percentage":41.2,"resets_at":1792800000}}}"#,
+    )
+    .unwrap();
+    let now = chrono::Utc
+        .with_ymd_and_hms(2026, 10, 17, 12, 0, 5)
+        .unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&snapshot_json(&v, now).unwrap()).unwrap();
+    assert!(parsed["five_hour_pct"].is_null());
+    assert!(parsed["five_hour_resets_at"].is_null());
+    assert_eq!(parsed["weekly_pct"], 41.2);
+}
+
+#[test]
+fn test_usage_snapshot_json_without_rate_limits() {
+    use crate::usage_snapshot::snapshot_json;
+
+    let v: serde_json::Value = serde_json::from_str(r#"{"cost":{}}"#).unwrap();
+    assert!(snapshot_json(&v, chrono::Utc::now()).is_none());
+}
+
+#[test]
+fn test_usage_snapshot_json_bad_resets_at() {
+    use crate::usage_snapshot::snapshot_json;
+
+    let v: serde_json::Value = serde_json::from_str(
+        r#"{"rate_limits":{"five_hour":{"used_percentage":1.0,"resets_at":1.5},"seven_day":{"used_percentage":2.0,"resets_at":9223372036854775807}}}"#,
+    )
+    .unwrap();
+    let parsed: serde_json::Value =
+        serde_json::from_str(&snapshot_json(&v, chrono::Utc::now()).unwrap()).unwrap();
+    assert!(parsed["five_hour_resets_at"].is_null());
+    assert!(parsed["weekly_resets_at"].is_null());
+    assert_eq!(parsed["five_hour_pct"], 1.0);
+}
+
+#[test]
+fn test_usage_snapshot_write_atomic() {
+    use crate::usage_snapshot::write_atomic;
+
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let dir = std::env::temp_dir().join(format!("foxtail-test-{}-{}", std::process::id(), nanos));
+    assert!(!dir.exists());
+    let path = dir.join("nested").join("usage.json");
+
+    write_atomic(&path, "first").unwrap();
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "first");
+    write_atomic(&path, "second").unwrap();
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "second");
+
+    let leftovers: Vec<_> = std::fs::read_dir(path.parent().unwrap())
+        .unwrap()
+        .map(|e| e.unwrap().file_name().into_string().unwrap())
+        .filter(|n| n.ends_with(".tmp"))
+        .collect();
+    assert!(leftovers.is_empty(), "{:?}", leftovers);
+
+    std::fs::remove_dir_all(&dir).unwrap();
+}

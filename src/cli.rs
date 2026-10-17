@@ -1,4 +1,5 @@
 use clap::{Parser, ValueEnum};
+use std::path::PathBuf;
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
 pub enum ColorMode {
@@ -41,5 +42,10 @@ pub struct Args {
     /// status payload to <session id>.cost.jsonl next to the transcript.
     #[arg(long = "log-cost")]
     pub log_cost: bool,
+
+    /// Atomically write the 5h and 7d usage percentages and reset times as
+    /// JSON to <FILE> on each status payload that carries rate_limits.
+    #[arg(long = "usage-snapshot", value_name = "FILE")]
+    pub usage_snapshot: Option<PathBuf>,
     // ASCII flag removed: always render the fun fox art when possible
 }
